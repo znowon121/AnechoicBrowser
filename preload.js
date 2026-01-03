@@ -1,23 +1,24 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// 將安全嘅 API 暴露俾 renderer process
-// 注意：所有 IPC 都應該經由 preload.js 暴露，避免 renderer 直接存取 node/electron
 contextBridge.exposeInMainWorld('electronAPI', {
-  // 打開 Chatroom 視窗（主進程會啟動或聚焦該視窗）
+  // 打開 Chatroom 視窗
   openChatroom: async () => ipcRenderer.invoke('chatroom:open-window'),
+  
+  // 設定 Sidebar 寬度
+  setSidebarWidth: (width) => ipcRenderer.invoke('sidebar:set-width', width),
 
-  // 接收來自 main process 嘅事件（例如 URL 更新）
+  // 接收事件
   on: (channel, callback) => {
-    const validChannels = ['chatroom:message-received'];
+    const validChannels = ['chatroom:message-received', 'auth:login-success'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (event, ...args) => callback(...args));
     }
   },
 
-  // 移除監聽器
-  removeListener: (channel, callback) => {
-    const validChannels = ['chatroom:message-received'];
-  }
+  // === [新增] Google Login ===
+  startGoogleLogin: () => ipcRenderer.send('auth:start-google-login'),
+  
+  onLoginSuccess: (callback) => ipcRenderer.on('auth:login-success', (event, user) => callback(user))
 });
 
 // ============================================================================

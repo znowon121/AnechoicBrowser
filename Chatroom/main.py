@@ -1,10 +1,11 @@
-﻿from flask import Flask, render_template, request, jsonify, session
+﻿from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from dotenv import load_dotenv
 import os
 import time
 from datetime import datetime, timezone
 from functools import wraps
+from authlib.integrations.flask_client import OAuth
 
 # 載入環境變數
 load_dotenv()
@@ -31,6 +32,26 @@ app = Flask(
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key')
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+# === [新增] Google OAuth 設定 ===
+app.config['GOOGLE_CLIENT_ID'] = os.getenv('GOOGLE_CLIENT_ID')
+app.config['GOOGLE_CLIENT_SECRET'] = os.getenv('GOOGLE_CLIENT_SECRET')
+
+oauth = OAuth(app)
+google = oauth.register(
+    name='google',
+    client_id=app.config['GOOGLE_CLIENT_ID'],
+    client_secret=app.config['GOOGLE_CLIENT_SECRET'],
+    access_token_url='https://oauth2.googleapis.com/token',
+    access_token_params=None,
+    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    authorize_params=None,
+    api_base_url='https://www.googleapis.com/oauth2/v1/',
+    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',
+    client_kwargs={'scope': 'openid email profile'},
+    jwks_uri='https://www.googleapis.com/oauth2/v3/certs'
+)
+# === [新增結束] ===
 
 socketio = SocketIO(
     app,
@@ -84,6 +105,66 @@ def socket_login_required(f):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/auth/google')
+def google_login():
+    """開始 Google 登入"""
+    redirect_uri = url_for('google_auth_callback', _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+@app.route('/auth/google/callback')
+def google_auth_callback():
+    """Google 登入回調"""
+    try:
+        token = google.authorize_access_token()
+        user_info = google.get('userinfo').json()
+        
+        email = user_info['email']
+        display_name = user_info['name']
+        avatar_url = user_info.get('picture', '')
+        
+        db = get_db()
+        try:
+            # 檢查用戶是否存在
+            user = get_user_by_email(db, email)
+            
+            if not user:
+                # 自動註冊新用戶
+                user = create_user(
+                    db,
+                    display_name=display_name,
+                    email=email,
+                    avatar_url=avatar_url
+                )
+            else:
+                # 更新頭像
+                if avatar_url:
+                    user.avatar_url = avatar_url
+                    db.commit()
+
+            session['user_id'] = user.id
+            
+            # 導向成功頁面，並帶上參數讓 Electron 抓取
+            return redirect(f'/auth/success?uid={user.id}&name={display_name}&avatar={avatar_url}')
+            
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"Google Login Error: {e}")
+        return f"Login failed: {str(e)}", 400
+
+@app.route('/auth/success')
+def auth_success():
+    """登入成功頁面"""
+    return """
+    <html>
+        <head><title>Login Successful</title></head>
+        <body style="background:#222; color:white; text-align:center; padding-top:50px; font-family:sans-serif;">
+            <h1>登入成功！</h1>
+            <p>正在返回應用程式...</p>
+        </body>
+    </html>
+    """
 
 @app.route('/auth/dev-login', methods=['POST'])
 def dev_login():

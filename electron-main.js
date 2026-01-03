@@ -13,6 +13,7 @@ try {
 let mainWindow;
 let flaskProcess = null; // child process for Flask
 let chatWindow = null; // separate BrowserWindow for chatroom
+let authWindow = null; // [新增]
 
 // ============================================================================
 // History & Bookmarks Storage Helper
@@ -168,6 +169,64 @@ ipcMain.handle('chatroom:open-window', async () => {
     console.error('chatroom:open-window error', e);
     return { ok: false, error: e.message };
   }
+});
+
+// ============================================================================
+// IPC: Auth (Google Login)
+// ============================================================================
+ipcMain.on('auth:start-google-login', () => {
+  if (authWindow) {
+    authWindow.focus();
+    return;
+  }
+
+  authWindow = new BrowserWindow({
+    width: 500,
+    height: 600,
+    show: false,
+    parent: mainWindow,
+    modal: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+
+  const loginUrl = `${FLASK_URL}/auth/google`;
+  authWindow.loadURL(loginUrl);
+  
+  authWindow.once('ready-to-show', () => authWindow.show());
+
+  // 監聽轉址，攔截 /auth/success
+  const handleAuthRedirect = (event, url) => {
+    if (url.includes('/auth/success')) {
+      try {
+        const urlObj = new URL(url);
+        const user = {
+          id: urlObj.searchParams.get('uid'),
+          name: urlObj.searchParams.get('name'),
+          avatar: urlObj.searchParams.get('avatar')
+        };
+
+        // 通知主視窗更新 UI
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('auth:login-success', user);
+        }
+
+        authWindow.destroy();
+        authWindow = null;
+      } catch (error) {
+        console.error('Auth redirect error:', error);
+      }
+    }
+  };
+
+  authWindow.webContents.on('will-redirect', handleAuthRedirect);
+  authWindow.webContents.on('did-navigate', handleAuthRedirect);
+
+  authWindow.on('closed', () => {
+    authWindow = null;
+  });
 });
 
 // ============================================================================
