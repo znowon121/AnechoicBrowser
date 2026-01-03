@@ -140,7 +140,11 @@
 
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
-            toast.textContent = msg;
+            toast.textContent = msg; 
+            toast.style.whiteSpace = 'nowrap';
+            toast.style.minWidth = '300px';         
+            toast.style.textAlign = 'left';         
+            toast.style.willChange = 'transform';
             toast.style.animation = 'toastIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
 
             container.appendChild(toast);
@@ -446,34 +450,47 @@
             const [searchTerm, setSearchTerm] = useState('');
             const [loading, setLoading] = useState(false);
 
-            // Load bookmarks from anechoicAPI when modal opens
+                    
             useEffect(() => {
-                if (isOpen && window.anechoicAPI) {
+                if (isOpen) {
                     setLoading(true);
-                    window.anechoicAPI.getBookmarks().then(result => {
-                        if (result.ok && result.data) {
-                            setBookmarks(result.data);
-                        } else {
-                            console.warn('Failed to fetch bookmarks:', result.error);
-                            setBookmarks([]);
-                        }
-                        setLoading(false);
-                    }).catch(error => {
-                        console.error('Error fetching bookmarks:', error);
-                        setLoading(false);
-                    });
+                    try {
+                        // 从 LocalStorage 读取
+                        const saved = localStorage.getItem('my_bookmarks'); // 注意保持 key 一致
+                        const data = saved ? JSON.parse(saved) : [];
+                        setBookmarks(data);
+                    } catch (e) {
+                        console.error(e);
+                        setBookmarks([]);
+                    }
+                    setLoading(false);
                 }
             }, [isOpen]);
 
-            const handleRemoveBookmark = async (url) => {
-                if (window.anechoicAPI) {
-                    const result = await window.anechoicAPI.removeBookmark(url);
-                    if (result.ok) {
-                        setBookmarks(result.data);
-                        showToast('Bookmark removed', 'success');
-                    } else {
-                        showToast('Failed to remove bookmark: ' + result.error, 'error');
-                    }
+            const handleRemoveBookmark = (url) => {
+                try {
+                    // 1. 获取当前所有书签 / Get current bookmarks
+                    const saved = localStorage.getItem('my_bookmarks');
+                    const currentBookmarks = saved ? JSON.parse(saved) : [];
+
+                    // 2. 过滤掉要删除的那个 URL / Filter out the URL to remove
+                    const updatedBookmarks = currentBookmarks.filter(b => b.url !== url);
+
+                    // 3. 保存回 localStorage / Save back to localStorage
+                    localStorage.setItem('my_bookmarks', JSON.stringify(updatedBookmarks));
+
+                    // 4. 更新当前列表状态 (让界面立即刷新) / Update state (Refresh UI immediately)
+                    setBookmarks(updatedBookmarks);
+
+                    // 5. 提示成功 / Show success message
+                    showToast('Bookmark removed', 'success');
+
+                    // (可选) 如果你正好在看这个页面，这也应该触发主按钮变灰，
+                    // 但由于 React 组件隔离，主按钮需要在下一次交互或刷新后才会变灰。
+                    // 简单的解决方法是刷新整个页面，或者这就够了。
+                } catch (error) {
+                    console.error('Remove failed:', error);
+                    showToast('Failed to remove bookmark', 'error');
                 }
             };
 
@@ -808,6 +825,7 @@
         };
 
         // 4. Main App Layout
+        // 4. Main App Layout
         const App = () => {
             // State
             const [tabs, setTabs] = useState([{ id: 'init-1', title: 'New Tab', url: '', isLoading: false, history: [''], historyIndex: 0, canGoBack: false, canGoForward: false }]);
@@ -817,115 +835,134 @@
             const [showSettings, setShowSettings] = useState(false);
             const [searchEngine, setSearchEngine] = useState('google');
             const [addressBarValue, setAddressBarValue] = useState('');
-            const [activeModule, setActiveModule] = useState(null); // 'ai-assistant' | 'chatroom' | 'notes' | 'history' | 'bookmarks' | 'pomodoro' | null
+            const [activeModule, setActiveModule] = useState(null); 
+            const [isBookmarked, setIsBookmarked] = useState(false);
             const webviewRefs = useRef({});
+            const [webview, setWebview] = useState(null); // Webview state
 
-            // Verify anechoicAPI on mount
-            useEffect(() => {
-                if (window.anechoicAPI) {
-                    console.log('✅ anechoicAPI is available:', window.anechoicAPI);
-                } else {
-                    console.error('❌ anechoicAPI is NOT available. History and Bookmarks features may not work.');
-                    console.log('window object keys:', Object.keys(window).filter(key => key.includes('API') || key.includes('api')));
-                }
-            }, []);
-
+            // 计算当前激活的 Tab
             const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
-            // 使用 BrowserView 的原生导航状态，而不是本地历史数组
             const canGoBack = activeTab.canGoBack || false;
             const canGoForward = activeTab.canGoForward || false;
 
-            // 處理侧邊欄寬度變化
-            const handleSidebarToggle = async (newOpenState) => {
-                setSidebarOpen(newOpenState);
-
-                // 發送新的侧邊欄寬度給主進程
-                const newWidth = newOpenState ? 256 : 64; // w-64 = 256px, w-16 = 64px
-                if (window.electronAPI && window.electronAPI.setSidebarWidth) {
-                    try {
-                        await window.electronAPI.setSidebarWidth(newWidth);
-                        console.log(`Sidebar width set to ${newWidth}px`);
-                    } catch (error) {
-                        console.error('Failed to update sidebar width:', error);
-                    }
+            // === 1. 书签逻辑 (必须放在 useEffect 之前) ===
+            
+            // 检查当前 URL 是否已收藏
+            const checkBookmarkStatus = (currentUrl) => {
+                if (!currentUrl) return false;
+                try {
+                    const saved = localStorage.getItem('my_bookmarks');
+                    const bookmarks = saved ? JSON.parse(saved) : [];
+                    return bookmarks.some(b => b.url === currentUrl);
+                } catch (e) {
+                    console.error("Failed to read bookmarks", e);
+                    return false;
                 }
             };
 
+            // 切换收藏状态
+            const toggleBookmark = () => {
+                if (!activeTab.url) {
+                    showToast('Cannot bookmark a blank page', 'warning');
+                    return;
+                }
+                try {
+                    const saved = localStorage.getItem('my_bookmarks');
+                    let bookmarks = saved ? JSON.parse(saved) : [];
+                    const currentUrl = activeTab.url;
+
+                    const isExisting = bookmarks.some(b => b.url === currentUrl);
+
+                    if (isExisting) {
+                        bookmarks = bookmarks.filter(b => b.url !== currentUrl);
+                        setIsBookmarked(false);
+                        showToast('Removed from favorites', 'info');
+                    } else {
+                        bookmarks.push({
+                            title: activeTab.title || 'No Title',
+                            url: currentUrl,
+                            timestamp: Date.now()
+                        });
+                        setIsBookmarked(true);
+                        showToast('Added to favorites!', 'success');
+                    }
+                    localStorage.setItem('my_bookmarks', JSON.stringify(bookmarks));
+                } catch (e) {
+                    showToast('Operation failed: ' + e.message, 'error');
+                }
+            };
+
+            // === 2. Effects (监听器) ===
+
+            // 监听 URL 变化，更新书签按钮状态
+            useEffect(() => {
+                const status = checkBookmarkStatus(activeTab.url);
+                setIsBookmarked(status);
+            }, [activeTab.url, activeTabId]);
+
+            // Verify anechoicAPI
+            useEffect(() => {
+                if (window.anechoicAPI) {
+                    console.log('✅ anechoicAPI available');
+                }
+            }, []);
+
+            // 侧边栏宽度通信
+            const handleSidebarToggle = async (newOpenState) => {
+                setSidebarOpen(newOpenState);
+                const newWidth = newOpenState ? 256 : 64;
+                if (window.electronAPI?.setSidebarWidth) {
+                    await window.electronAPI.setSidebarWidth(newWidth);
+                }
+            };
+
+            // 地址栏同步
             useEffect(() => {
                 setAddressBarValue(activeTab.url);
             }, [activeTabId, activeTab.url]);
 
-            // Webview 状态引用（使用 useState 而不是 useRef）
-            const [webview, setWebview] = useState(null);
-
-            // 当 activeTabId 改变时，更新当前的 webview state，以便导航按钮能控制正确的页面
+            // Webview Ref 更新
             useEffect(() => {
                 const currentWebviewEl = webviewRefs.current[activeTabId];
                 if (currentWebviewEl) {
-                    setWebview(currentWebviewEl); // 更新 state，这会触发你已有的监听事件绑定逻辑
+                    setWebview(currentWebviewEl);
                 }
             }, [activeTabId]);
 
-            // 更新导航状态（后退/前进按钮可用性）
-            const updateNavigationState = () => {
-                if (!webview) return;
-
-                try {
-                    const canGoBack = webview.canGoBack();
-                    const canGoForward = webview.canGoForward();
-                    const url = webview.getURL();
-
-                    console.log(`Navigation state: url=${url}, canGoBack=${canGoBack}, canGoForward=${canGoForward}`);
-
-                    updateTab(activeTabId, {
-                        canGoBack,
-                        canGoForward,
-                        url: url || activeTab.url,
-                        isLoading: false
-                    });
-
-                    if (url) {
-                        setAddressBarValue(url);
-                    }
-                } catch (error) {
-                    console.error('Error updating navigation state:', error);
-                }
-            };
-
-            // 监听 webview 事件（依赖于 webview 对象）
+            // Webview 事件监听
             useEffect(() => {
                 if (!webview) return;
 
-                // dom-ready：webview 完全加载时
-                const handleDomReady = () => {
-                    console.log('webview dom-ready');
-                    updateNavigationState();
+                const updateNavigationState = () => {
+                    try {
+                        updateTab(activeTabId, {
+                            canGoBack: webview.canGoBack(),
+                            canGoForward: webview.canGoForward(),
+                            url: webview.getURL() || activeTab.url,
+                            isLoading: false
+                        });
+                        setAddressBarValue(webview.getURL());
+                    } catch (error) {
+                        console.error(error);
+                    }
                 };
 
-                // did-navigate：页面导航时
-                const handleDidNavigate = (event) => {
-                    console.log('webview did-navigate:', event.url);
-                    updateNavigationState();
-                };
+                const handleDomReady = () => updateNavigationState();
+                const handleDidNavigate = (e) => updateNavigationState();
+                const handleDidNavigateInPage = (e) => updateNavigationState();
 
-                // did-navigate-in-page：SPA 页面内导航时（YouTube、Gmail 等）
-                const handleDidNavigateInPage = (event) => {
-                    console.log('webview did-navigate-in-page:', event.url);
-                    updateNavigationState();
-                };
-
-                // 绑定事件监听器
                 webview.addEventListener('dom-ready', handleDomReady);
                 webview.addEventListener('did-navigate', handleDidNavigate);
                 webview.addEventListener('did-navigate-in-page', handleDidNavigateInPage);
 
-                // 清理函数：移除事件监听器
                 return () => {
                     webview.removeEventListener('dom-ready', handleDomReady);
                     webview.removeEventListener('did-navigate', handleDidNavigate);
                     webview.removeEventListener('did-navigate-in-page', handleDidNavigateInPage);
                 };
-            }, [webview]);
+            }, [webview, activeTabId]); // 依赖项
+
+            // === 3. 辅助函数 ===
 
             const addTab = () => {
                 const newId = `tab-${Date.now()}`;
@@ -946,104 +983,36 @@
                 setTabs(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
             };
 
-            const navigate = async (url, isHistoryNav = false) => {
+            const navigate = async (url) => {
                 let targetUrl = url;
-
-                // 如果 url 为空或只是空白，表示导航到主页
                 if (!url || url.trim().length === 0) {
                     updateTab(activeTabId, { url: '', title: 'New Tab', isLoading: false });
                     setAddressBarValue('');
                     return;
                 }
-
-                // 如果 URL 不以 http 开头，则视为搜索查询
                 if (!url.startsWith('http')) {
-                    // Use the selected search engine
                     const searchQuery = encodeURIComponent(url);
-                    switch (searchEngine) {
-                        case 'bing':
-                            targetUrl = `https://www.bing.com/search?q=${searchQuery}`;
-                            break;
-                        case 'duckduckgo':
-                            targetUrl = `https://duckduckgo.com/?q=${searchQuery}`;
-                            break;
-                        case 'google':
-                        default:
-                            targetUrl = `https://www.google.com/search?q=${searchQuery}`;
-                            break;
-                    }
+                    targetUrl = searchEngine === 'bing' ? `https://www.bing.com/search?q=${searchQuery}` :
+                                searchEngine === 'duckduckgo' ? `https://duckduckgo.com/?q=${searchQuery}` :
+                                `https://www.google.com/search?q=${searchQuery}`;
                 }
-
-                // 更新 tab 状态，webview src 会自动加载 URL
-                console.log(`Navigating to: ${targetUrl}`);
                 updateTab(activeTabId, { url: targetUrl, title: targetUrl, isLoading: true });
                 setAddressBarValue(targetUrl);
             };
 
-            const goBack = () => {
-                console.log('goBack clicked');
-                if (webview && webview.canGoBack()) {
-                    webview.goBack();
-                }
-            };
+            const goBack = () => webview?.canGoBack() && webview.goBack();
+            const goForward = () => webview?.canGoForward() && webview.goForward();
+            const reload = () => webview?.reload();
+            const goHome = () => navigate('');
+            const handleAddressBarSubmit = (e) => { e.preventDefault(); navigate(addressBarValue); };
 
-            const goForward = () => {
-                console.log('goForward clicked');
-                if (webview && webview.canGoForward()) {
-                    webview.goForward();
-                }
-            };
-
-            const reload = () => {
-                console.log('reload clicked');
-                if (webview) {
-                    webview.reload();
-                }
-            };
-
-            const handleAddressBarSubmit = (e) => {
-                e.preventDefault();
-                navigate(addressBarValue);
-            };
-
-            const goHome = () => {
-                console.log('goHome clicked');
-                navigate(''); // 空字符串表示回到主页
-            };
-
-            const addBookmark = async () => {
-                if (!activeTab.url) {
-                    showToast('No page to bookmark', 'warning');
-                    return;
-                }
-                if (!window.anechoicAPI) {
-                    showToast('Bookmark API not available', 'error');
-                    console.error('anechoicAPI not found');
-                    return;
-                }
-                try {
-                    const result = await window.anechoicAPI.addBookmark({
-                        title: activeTab.title || 'Untitled',
-                        url: activeTab.url
-                    });
-                    if (result.ok) {
-                        showToast('✅ Bookmark saved!', 'success');
-                    } else {
-                        showToast('❌ ' + result.error, 'error');
-                    }
-                } catch (error) {
-                    showToast('Error saving bookmark: ' + error.message, 'error');
-                    console.error('Bookmark error:', error);
-                }
-            };
-
+            // === 4. Render (渲染) ===
             return (
                 <div className={`
                     flex h-screen w-screen overflow-hidden transition-colors duration-500 
                     ${mode === 'learning' ? 'bg-gradient-to-br from-blue-200 via-slate-200 to-indigo-200' : 'bg-gradient-to-br from-orange-200 via-amber-100 to-rose-200'}
                 `}>
-
-                    {/* Left Sidebar - Fixed width */}
+                    {/* Left Sidebar */}
                     <div className={`transition-all duration-500 ease-in-out ${sidebarOpen ? 'w-64' : 'w-16'}`}>
                         <Sidebar
                             isOpen={sidebarOpen}
@@ -1060,15 +1029,10 @@
                         />
                     </div>
 
-                    {/* Main Content Area - Flex to fill remaining space */}
+                    {/* Main Content Area */}
                     <div className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
-
-                        {/* Title Bar - TRAFFIC LIGHTS REMOVED */}
-                        <div className={`
-                            h-10 flex items-center px-4 select-none draggable transition-colors duration-500
-                            ${mode === 'learning' ? 'bg-slate-200/50' : 'bg-orange-100/50'}
-                        `}>
-                            {/* Tabs Container */}
+                        {/* Tabs Bar */}
+                        <div className={`h-10 flex items-center px-4 select-none draggable transition-colors duration-500 ${mode === 'learning' ? 'bg-slate-200/50' : 'bg-orange-100/50'}`}>
                             <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar items-end h-full pt-1">
                                 {tabs.map(tab => (
                                     <div key={tab.id} onClick={() => setActiveTabId(tab.id)} className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-t-lg min-w-[120px] max-w-[200px] text-xs font-medium cursor-pointer transition-all ${activeTabId === tab.id ? 'bg-white shadow-sm text-gray-800' : 'bg-transparent text-gray-500 hover:bg-white/40'}`}>
@@ -1080,20 +1044,32 @@
                             </div>
                         </div>
 
-                        {/* Navigation & Address Bar */}
+                        {/* Navigation Bar */}
                         <div className="h-14 px-4 flex items-center gap-3 bg-white/70 backdrop-blur-md border-b border-gray-200/50 z-20">
                             <button onClick={goBack} disabled={!canGoBack} className="p-2 hover:bg-gray-200/50 rounded-lg text-gray-600 disabled:opacity-30 transition-opacity"><Icons.ChevronLeft className="w-5 h-5" /></button>
                             <button onClick={goForward} disabled={!canGoForward} className="p-2 hover:bg-gray-200/50 rounded-lg text-gray-600 disabled:opacity-30 transition-opacity"><Icons.ChevronRight className="w-5 h-5" /></button>
                             <button onClick={goHome} className="p-2 hover:bg-gray-200/50 rounded-lg text-gray-600"><Icons.Home className="w-4 h-4" /></button>
                             <button onClick={reload} className="p-2 hover:bg-gray-200/50 rounded-lg text-gray-600"><Icons.RotateCw className="w-4 h-4" /></button>
-                            <button onClick={addBookmark} title="Add current page to bookmarks" className="p-2 hover:bg-green-100 rounded-lg text-gray-600 hover:text-green-600 transition-colors"><Icons.Bookmark className="w-5 h-5" /></button>
+                            
+                            {/* 书签按钮 (已更新) */}
+                            <button 
+                                onClick={toggleBookmark} 
+                                title={isBookmarked ? "取消收藏" : "添加到收藏夹"}
+                                className={`p-2 rounded-lg transition-all duration-200 ${
+                                    isBookmarked 
+                                        ? 'bg-green-100 text-green-600 shadow-sm' 
+                                        : 'text-gray-600 hover:bg-gray-100'
+                                }`}
+                            >
+                                <Icons.Bookmark className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`} />
+                            </button>
 
                             <form onSubmit={handleAddressBarSubmit} className="flex-1">
                                 <div className="relative group">
                                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
                                         {activeTab.url.startsWith('https') ? <Icons.Globe className="w-4 h-4 text-green-600" /> : <Icons.Search className="w-4 h-4 text-gray-400" />}
                                     </div>
-                                    <input id="search-input" type="text" value={addressBarValue} onChange={(e) => setAddressBarValue(e.target.value)} placeholder="Search or enter website..." className="w-full py-2 pl-10 pr-4 bg-gray-100/50 hover:bg-gray-100 focus:bg-white border border-transparent focus:border-blue-300 rounded-lg text-sm transition-all focus:ring-2 focus:ring-blue-100 focus:outline-none" />
+                                    <input type="text" value={addressBarValue} onChange={(e) => setAddressBarValue(e.target.value)} placeholder="Search or enter website..." className="w-full py-2 pl-10 pr-4 bg-gray-100/50 hover:bg-gray-100 focus:bg-white border border-transparent focus:border-blue-300 rounded-lg text-sm transition-all focus:ring-2 focus:ring-blue-100 focus:outline-none" />
                                 </div>
                             </form>
 
@@ -1103,28 +1079,14 @@
                             </div>
                         </div>
 
-                        {/* Browser Viewport Area - Using <webview> */}
+                        {/* Browser Viewport */}
                         <div className="flex-1 relative bg-white overflow-hidden">
                             {tabs.map(tab => (
-                                // 外层的 div 已经通过 className 控制了 block/hidden，所以内部不需要再销毁组件
                                 <div key={tab.id} className={`w-full h-full ${activeTabId === tab.id ? 'block' : 'hidden'}`}>
                                     {!tab.url ? (
-                                        <HomeView
-                                            onNavigate={(url) => navigate(url)}
-                                            onOpenModule={(module) => setActiveModule(module)}
-                                        />
+                                        <HomeView onNavigate={(url) => navigate(url)} onOpenModule={(module) => setActiveModule(module)} />
                                     ) : (
-                                        // ✅ 移除条件判断，直接渲染 webview
-                                        <webview
-                                            ref={(el) => {
-                                                // 将每个 tab 的 webview 实例存入 useRef 中
-                                                if (el) {
-                                                    webviewRefs.current[tab.id] = el;
-                                                }
-                                            }}
-                                            src={tab.url}
-                                            className="w-full h-full"
-                                        />
+                                        <webview ref={(el) => { if (el) webviewRefs.current[tab.id] = el; }} src={tab.url} className="w-full h-full" />
                                     )}
                                 </div>
                             ))}
