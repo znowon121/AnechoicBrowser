@@ -199,18 +199,27 @@ ipcMain.on('auth:start-google-login', () => {
 
   // 監聽轉址，攔截 /auth/success
   const handleAuthRedirect = (event, url) => {
+    // [DEBUG] 印出目前視窗正在載入的網址
+    console.log('Auth Window navigating to:', url);
+
     if (url.includes('/auth/success')) {
+      console.log('✅ Detected success URL!'); // [DEBUG]
       try {
         const urlObj = new URL(url);
         const user = {
-          id: urlObj.searchParams.get('uid'),
+          id: urlObj.searchParams.get('uid'), // 確保這裡對應 main.py 的參數
           name: urlObj.searchParams.get('name'),
           avatar: urlObj.searchParams.get('avatar')
         };
+        
+        console.log('👤 User data extracted:', user); // [DEBUG]
 
         // 通知主視窗更新 UI
         if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('📡 Sending to mainWindow...'); // [DEBUG]
           mainWindow.webContents.send('auth:login-success', user);
+        } else {
+            console.error('❌ MainWindow is missing or destroyed!');
         }
 
         authWindow.destroy();
