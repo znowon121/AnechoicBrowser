@@ -1,4 +1,4 @@
-const defaultConfig = {
+    const defaultConfig = {
       page_title: "My Custom Homepage",
       search_placeholder: "Search the web...",
       background_color: "#667eea",
@@ -1064,4 +1064,9 @@ const defaultConfig = {
     });
 
     initializeApp();
+    
+    // 自动测试 Toast 动画（用于验证是否工作）
+    setTimeout(() => {
+      window.showToast('🎉 应用已加载 - Toast 动画测试', 'success', 5000);
+    }, 500);
   

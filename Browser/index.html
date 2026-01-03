@@ -99,9 +99,34 @@
 </head>
 <body class="h-screen w-screen text-gray-800">
     <div id="root"></div>
+    <!-- Toast Container - Outside React Root -->
+    <div id="toast-container" style="position: fixed; bottom: 40px; right: 40px; display: flex; flex-direction: column; gap: 12px; z-index: 99999; pointer-events: none;"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
+
+        // === TOAST 系统 ===
+        const showToast = function(msg, type = 'success', duration = 3000) {
+          const container = document.getElementById('toast-container');
+          if (!container) {
+            console.warn('Toast container not found');
+            return;
+          }
+          
+          const toast = document.createElement('div');
+          toast.className = `toast toast-${type}`;
+          toast.textContent = msg;
+          toast.style.animation = 'toastIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+          
+          container.appendChild(toast);
+          
+          setTimeout(() => {
+            toast.style.animation = 'toastOut 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards';
+            setTimeout(() => {
+              toast.remove();
+            }, 500);
+          }, duration);
+        };
 
         // --- GEMINI API SETUP ---
         const apiKey = ""; // API Key injected by environment
@@ -420,8 +445,9 @@
                     const result = await window.anechoicAPI.removeBookmark(url);
                     if (result.ok) {
                         setBookmarks(result.data);
+                        showToast('Bookmark removed', 'success');
                     } else {
-                        alert('Failed to remove bookmark: ' + result.error);
+                        showToast('Failed to remove bookmark: ' + result.error, 'error');
                     }
                 }
             };
@@ -676,8 +702,8 @@
             </button>
         );
 
-        // 2. Settings Menu Modal (Updated)
-        const SettingsMenu = ({ onClose, currentEngine, setEngine, user, onLogin }) => (
+        // 2. Settings Menu Modal
+        const SettingsMenu = ({ onClose, currentEngine, setEngine }) => (
             <div className="absolute top-12 right-4 w-72 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200 p-4 z-50 animate-fade-in origin-top-right">
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="font-semibold text-gray-800">Settings</h3>
@@ -687,29 +713,11 @@
                     <div>
                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Account</label>
                         <div className="flex items-center gap-3 p-2 bg-white rounded-xl border border-gray-100 shadow-sm">
-                            {user ? (
-                                <>
-                                    <img src={user.avatar} className="w-8 h-8 rounded-full border border-gray-200 object-cover" alt="Avatar"/>
-                                    <div className="flex-1">
-                                        <div className="text-sm font-medium truncate">{user.name}</div>
-                                        <div className="text-xs text-green-500 flex items-center gap-1">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> Logged In
-                                        </div>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-400 to-purple-500"></div>
-                                    <div className="flex-1">
-                                        <div className="text-sm font-medium">Guest User</div>
-                                        <div className="text-xs text-gray-400">Not logged in</div>
-                                    </div>
-                                    <button onClick={onLogin} className="text-xs bg-gray-900 text-white px-3 py-1 rounded-full hover:bg-gray-700 transition-colors">Login</button>
-                                </>
-                            )}
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-400 to-purple-500"></div>
+                            <div className="flex-1"><div className="text-sm font-medium">Guest User</div><div className="text-xs text-gray-400">Not logged in</div></div>
+                            <button className="text-xs bg-gray-900 text-white px-3 py-1 rounded-full">Login</button>
                         </div>
                     </div>
-                    {/* ... (Search Engine 部分保留) ... */}
                     <div>
                         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Search Engine</label>
                         <select value={currentEngine} onChange={(e) => setEngine(e.target.value)} className="w-full p-2 bg-gray-100 rounded-lg text-sm border-none focus:ring-2 focus:ring-blue-500">
@@ -770,9 +778,8 @@
         };
 
         // 4. Main App Layout
-        // 4. Main App Layout
         const App = () => {
-            // ... (原本的 state 定義) ...
+            // State
             const [tabs, setTabs] = useState([{ id: 'init-1', title: 'New Tab', url: '', isLoading: false, history: [''], historyIndex: 0, canGoBack: false, canGoForward: false }]);
             const [activeTabId, setActiveTabId] = useState('init-1');
             const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -780,39 +787,8 @@
             const [showSettings, setShowSettings] = useState(false);
             const [searchEngine, setSearchEngine] = useState('google');
             const [addressBarValue, setAddressBarValue] = useState('');
-            const [activeModule, setActiveModule] = useState(null);
+            const [activeModule, setActiveModule] = useState(null); // 'ai-assistant' | 'chatroom' | 'notes' | 'history' | 'bookmarks' | 'pomodoro' | null
 
-            // === [新增] User State & Login Logic ===
-            const [user, setUser] = useState(null);
-
-            useEffect(() => {
-                // 讀取本地緩存的用戶
-                const saved = localStorage.getItem('anechoic_user');
-                if (saved) {
-                    try { setUser(JSON.parse(saved)); } catch(e) {}
-                }
-
-                // 監聽登入成功
-                if (window.electronAPI && window.electronAPI.onLoginSuccess) {
-                    window.electronAPI.onLoginSuccess((userData) => {
-                        console.log('Login Success:', userData);
-                        setUser(userData);
-                        localStorage.setItem('anechoic_user', JSON.stringify(userData));
-                        setShowSettings(true); // 自動打開設定頁面顯示狀態
-                    });
-                }
-            }, []);
-
-            const handleLogin = () => {
-                if (window.electronAPI && window.electronAPI.startGoogleLogin) {
-                    window.electronAPI.startGoogleLogin();
-                } else {
-                    alert("Please run in Electron app to login.");
-                }
-            };
-            // === [新增結束] ===
-
-            // ... (後面的代碼保持不變) ...
             // Verify anechoicAPI on mount
             useEffect(() => {
                 if (window.anechoicAPI) {
@@ -998,11 +974,11 @@
 
             const addBookmark = async () => {
                 if (!activeTab.url) {
-                    alert('No page to bookmark');
+                    showToast('No page to bookmark', 'warning');
                     return;
                 }
                 if (!window.anechoicAPI) {
-                    alert('Bookmark API not available');
+                    showToast('Bookmark API not available', 'error');
                     console.error('anechoicAPI not found');
                     return;
                 }
@@ -1012,12 +988,12 @@
                         url: activeTab.url
                     });
                     if (result.ok) {
-                        alert('✅ Bookmark saved!');
+                        showToast('✅ Bookmark saved!', 'success');
                     } else {
-                        alert('❌ ' + result.error);
+                        showToast('❌ ' + result.error, 'error');
                     }
                 } catch (error) {
-                    alert('Error saving bookmark: ' + error.message);
+                    showToast('Error saving bookmark: ' + error.message, 'error');
                     console.error('Bookmark error:', error);
                 }
             };
@@ -1078,19 +1054,13 @@
                                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
                                         {activeTab.url.startsWith('https') ? <Icons.Globe className="w-4 h-4 text-green-600"/> : <Icons.Search className="w-4 h-4 text-gray-400"/>}
                                     </div>
-                                    <input type="text" value={addressBarValue} onChange={(e) => setAddressBarValue(e.target.value)} placeholder="Search or enter website..." className="w-full py-2 pl-10 pr-4 bg-gray-100/50 hover:bg-gray-100 focus:bg-white border border-transparent focus:border-blue-300 rounded-lg text-sm transition-all focus:ring-2 focus:ring-blue-100 focus:outline-none" />
+                                    <input id="search-input" type="text" value={addressBarValue} onChange={(e) => setAddressBarValue(e.target.value)} placeholder="Search or enter website..." className="w-full py-2 pl-10 pr-4 bg-gray-100/50 hover:bg-gray-100 focus:bg-white border border-transparent focus:border-blue-300 rounded-lg text-sm transition-all focus:ring-2 focus:ring-blue-100 focus:outline-none" />
                                 </div>
                             </form>
 
                             <div className="relative">
                                 <button onClick={() => setShowSettings(!showSettings)} className={`p-2 rounded-lg transition-colors ${showSettings ? 'bg-gray-200 text-blue-600' : 'hover:bg-gray-200/50 text-gray-600'}`}><Icons.Settings className="w-5 h-5" /></button>
-                                {showSettings && <SettingsMenu 
-                                    onClose={() => setShowSettings(false)} 
-                                    currentEngine={searchEngine} 
-                                    setEngine={setSearchEngine} 
-                                    user={user}                 // 新增
-                                    onLogin={handleLogin}       // 新增
-                                />}
+                                {showSettings && <SettingsMenu onClose={() => setShowSettings(false)} currentEngine={searchEngine} setEngine={setSearchEngine} />}
                             </div>
                         </div>
 
