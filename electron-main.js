@@ -126,12 +126,6 @@ function createWindow() {
   // 載入 Browser/index.html
   mainWindow.loadFile(path.join(__dirname, 'Browser', 'index.html'));
 
-  // 監聽導航事件以保存歷史
-  mainWindow.webContents.on('did-navigate', (event, url) => {
-    const title = mainWindow.webContents.getTitle();
-    addToHistory(title, url);
-  });
-
   // 開發模式下開啟 DevTools
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
@@ -249,6 +243,24 @@ ipcMain.handle('bookmarks:get', async () => {
   } catch (error) {
     console.error('bookmarks:get error', error);
     return { ok: false, error: error.message };
+  }
+});
+
+// ============================================================================
+// Capture navigation events from all webviews (tabs)
+// ============================================================================
+app.on('web-contents-created', (event, contents) => {
+  // Only listen to webviews (tabs), not the main window itself
+  if (contents.getType() === 'webview') {
+    // Capture when a user navigates to a new URL
+    contents.on('did-navigate', (event, url) => {
+      addToHistory(contents.getTitle(), url);
+    });
+
+    // Update history again when title is finalized (for better UX)
+    contents.on('page-title-updated', (event, title) => {
+      addToHistory(title, contents.getURL());
+    });
   }
 });
 

@@ -312,7 +312,7 @@
         };
 
         // History Module
-        const HistoryModule = ({ isOpen, onClose, tabs }) => {
+        const HistoryModule = ({ isOpen, onClose, tabs, onNavigate }) => {
             const [searchTerm, setSearchTerm] = useState('');
             const [historyData, setHistoryData] = useState([]);
             const [loading, setLoading] = useState(false);
@@ -372,7 +372,7 @@
                                 <div className="text-center text-gray-500 py-8">No history found</div>
                             ) : (
                                 filteredHistory.map((item, index) => (
-                                    <div key={index} className="flex items-center gap-3 p-3 hover:bg-gray-100/50 rounded-lg cursor-pointer transition-colors">
+                                    <div key={index} className="flex items-center gap-3 p-3 hover:bg-gray-100/50 rounded-lg cursor-pointer transition-colors" onClick={() => onNavigate(item.url)}>
                                         <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium text-gray-600">
                                             {(item.title || 'Page').charAt(0).toUpperCase()}
                                         </div>
@@ -380,7 +380,7 @@
                                             <div className="text-sm font-medium text-gray-700 truncate">{item.title || item.url}</div>
                                             <div className="text-xs text-gray-500">{new Date(item.timestamp).toLocaleString()}</div>
                                         </div>
-                                        <button className="p-1 hover:bg-gray-200 rounded"><Icons.Globe className="w-4 h-4 text-gray-400" /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); onNavigate(item.url); }} className="p-1 hover:bg-gray-200 rounded"><Icons.Globe className="w-4 h-4 text-gray-400" /></button>
                                     </div>
                                 ))
                             )}
@@ -391,7 +391,7 @@
         };
 
         // Bookmarks Module
-        const BookmarksModule = ({ isOpen, onClose }) => {
+        const BookmarksModule = ({ isOpen, onClose, onNavigate }) => {
             const [bookmarks, setBookmarks] = useState([]);
             const [searchTerm, setSearchTerm] = useState('');
             const [loading, setLoading] = useState(false);
@@ -464,13 +464,13 @@
                             ) : (
                                 <div className="space-y-2">
                                     {filteredBookmarks.map((bookmark) => (
-                                        <div key={bookmark.url} className="p-3 bg-gray-50/50 rounded-lg hover:bg-gray-100/50 transition-colors flex items-center justify-between group">
+                                        <div key={bookmark.url} className="p-3 bg-gray-50/50 rounded-lg hover:bg-gray-100/50 transition-colors flex items-center justify-between group cursor-pointer" onClick={() => onNavigate(bookmark.url)}>
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-sm font-medium text-gray-700 truncate">{bookmark.title}</div>
                                                 <div className="text-xs text-gray-500 truncate">{bookmark.url}</div>
                                             </div>
                                             <button 
-                                                onClick={() => handleRemoveBookmark(bookmark.url)}
+                                                onClick={(e) => { e.stopPropagation(); handleRemoveBookmark(bookmark.url); }}
                                                 className="p-1.5 ml-2 opacity-0 group-hover:opacity-100 hover:bg-red-100 rounded transition-all text-red-500"
                                                 title="Remove bookmark"
                                             >
@@ -621,7 +621,7 @@
         };
 
         // 1. Sidebar Component
-        const Sidebar = ({ isOpen, toggle, mode, setMode, onOpenChat, onOpenChatRoom, onOpenNotes }) => {
+        const Sidebar = ({ isOpen, toggle, mode, setMode, onOpenModule }) => {
             const [activeItem, setActiveItem] = useState('history');
             
             // Define active color based on mode
@@ -641,16 +641,16 @@
                     </div>
 
                     <div className="flex-1 py-4 flex flex-col gap-2 overflow-y-auto">
-                        <SidebarItem icon={Icons.History} label="History" isOpen={isOpen} active={activeItem === 'history'} onClick={() => { setActiveItem('history'); setActiveModule('history'); }} activeClass={activeColorClass} iconActive={iconColorClass} />
-                        <SidebarItem icon={Icons.Bookmark} label="Bookmarks" isOpen={isOpen} active={activeItem === 'bookmarks'} onClick={() => { setActiveItem('bookmarks'); setActiveModule('bookmarks'); }} activeClass={activeColorClass} iconActive={iconColorClass} />
-                        <SidebarItem icon={Icons.Clock} label="Pomodoro" isOpen={isOpen} active={activeItem === 'pomodoro'} onClick={() => { setActiveItem('pomodoro'); setActiveModule('pomodoro'); }} activeClass={activeColorClass} iconActive={iconColorClass} />
+                        <SidebarItem icon={Icons.History} label="History" isOpen={isOpen} active={activeItem === 'history'} onClick={() => { setActiveItem('history'); onOpenModule('history'); }} activeClass={activeColorClass} iconActive={iconColorClass} />
+                        <SidebarItem icon={Icons.Bookmark} label="Bookmarks" isOpen={isOpen} active={activeItem === 'bookmarks'} onClick={() => { setActiveItem('bookmarks'); onOpenModule('bookmarks'); }} activeClass={activeColorClass} iconActive={iconColorClass} />
+                        <SidebarItem icon={Icons.Clock} label="Pomodoro" isOpen={isOpen} active={activeItem === 'pomodoro'} onClick={() => { setActiveItem('pomodoro'); onOpenModule('pomodoro'); }} activeClass={activeColorClass} iconActive={iconColorClass} />
                         
                         <div className="my-2 border-t border-gray-200/50 mx-4"></div>
                          
                          {/* Productivity Tools in Sidebar */}
-                        <SidebarItem icon={Icons.Bot} label="AI Assistant" isOpen={isOpen} active={activeItem === 'ai-assistant'} onClick={() => { setActiveItem('ai-assistant'); onOpenChat(); }} extraClass="text-purple-600 hover:bg-purple-50" activeClass="text-purple-700 bg-purple-100" iconActive="text-purple-700" />
-                        <SidebarItem icon={Icons.Users} label="Chat Room" isOpen={isOpen} active={activeItem === 'chatroom'} onClick={() => { setActiveItem('chatroom'); onOpenChatRoom(); }} extraClass="text-green-600 hover:bg-green-50" activeClass="text-green-700 bg-green-100" iconActive="text-green-700" />
-                        <SidebarItem icon={Icons.Sparkles} label="Smart Notes" isOpen={isOpen} active={activeItem === 'notes'} onClick={() => { setActiveItem('notes'); onOpenNotes(); }} extraClass="text-amber-600 hover:bg-amber-50" activeClass="text-amber-700 bg-amber-100" iconActive="text-amber-700" />
+                        <SidebarItem icon={Icons.Bot} label="AI Assistant" isOpen={isOpen} active={activeItem === 'ai-assistant'} onClick={() => { setActiveItem('ai-assistant'); onOpenModule('ai-assistant'); }} extraClass="text-purple-600 hover:bg-purple-50" activeClass="text-purple-700 bg-purple-100" iconActive="text-purple-700" />
+                        <SidebarItem icon={Icons.Users} label="Chat Room" isOpen={isOpen} active={activeItem === 'chatroom'} onClick={() => { setActiveItem('chatroom'); onOpenModule('chatroom'); }} extraClass="text-green-600 hover:bg-green-50" activeClass="text-green-700 bg-green-100" iconActive="text-green-700" />
+                        <SidebarItem icon={Icons.Sparkles} label="Smart Notes" isOpen={isOpen} active={activeItem === 'notes'} onClick={() => { setActiveItem('notes'); onOpenModule('notes'); }} extraClass="text-amber-600 hover:bg-amber-50" activeClass="text-amber-700 bg-amber-100" iconActive="text-amber-700" />
 
                         <div className="my-2 border-t border-gray-200/50 mx-4"></div>
                         
@@ -716,11 +716,7 @@
             const handleSubmit = (e) => {
                 e.preventDefault();
                 if (inputValue.trim()) {
-                    let url = inputValue;
-                    if (!url.startsWith('http')) {
-                        url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
-                    }
-                    onNavigate(url);
+                    onNavigate(inputValue.trim());
                 }
             };
 
@@ -897,7 +893,20 @@
                 
                 // 如果 URL 不以 http 开头，则视为搜索查询
                 if (!url.startsWith('http')) {
-                    targetUrl = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+                    // Use the selected search engine
+                    const searchQuery = encodeURIComponent(url);
+                    switch (searchEngine) {
+                        case 'bing':
+                            targetUrl = `https://www.bing.com/search?q=${searchQuery}`;
+                            break;
+                        case 'duckduckgo':
+                            targetUrl = `https://duckduckgo.com/?q=${searchQuery}`;
+                            break;
+                        case 'google':
+                        default:
+                            targetUrl = `https://www.google.com/search?q=${searchQuery}`;
+                            break;
+                    }
                 }
 
                 // 更新 tab 状态，webview src 会自动加载 URL
@@ -976,9 +985,13 @@
                             toggle={() => handleSidebarToggle(!sidebarOpen)} 
                             mode={mode} 
                             setMode={setMode} 
-                            onOpenChat={() => setActiveModule('ai-assistant')}
-                            onOpenChatRoom={() => { if(window.electronAPI) window.electronAPI.openChatroom(); else setActiveModule('chatroom'); }}
-                            onOpenNotes={() => setActiveModule('notes')}
+                            onOpenModule={(module) => {
+                                if (module === 'chatroom' && window.electronAPI) {
+                                    window.electronAPI.openChatroom();
+                                } else {
+                                    setActiveModule(module);
+                                }
+                            }}
                         />
                     </div>
 
@@ -1053,8 +1066,8 @@
                         <AIAssistantModule isOpen={activeModule === 'ai-assistant'} onClose={() => setActiveModule(null)} />
                         <ChatRoomModule isOpen={activeModule === 'chatroom'} onClose={() => setActiveModule(null)} />
                         <SmartNotesModule isOpen={activeModule === 'notes'} onClose={() => setActiveModule(null)} />
-                        <HistoryModule isOpen={activeModule === 'history'} onClose={() => setActiveModule(null)} tabs={tabs} />
-                        <BookmarksModule isOpen={activeModule === 'bookmarks'} onClose={() => setActiveModule(null)} />
+                        <HistoryModule isOpen={activeModule === 'history'} onClose={() => setActiveModule(null)} tabs={tabs} onNavigate={(url) => { navigate(url); setActiveModule(null); }} />
+                        <BookmarksModule isOpen={activeModule === 'bookmarks'} onClose={() => setActiveModule(null)} onNavigate={(url) => { navigate(url); setActiveModule(null); }} />
                         <PomodoroModule isOpen={activeModule === 'pomodoro'} onClose={() => setActiveModule(null)} />
                     </div>
                 </div>
